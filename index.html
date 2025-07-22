@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta DJEN</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .controls {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .input-group input, .input-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .input-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .input-group input:focus, .input-group textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .date-inputs {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .date-inputs .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+
+        .button:hover {
+            background: #0056b3;
+        }
+
+        .button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .copy-button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .copy-button:hover {
+            background: #218838;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .results {
+            margin-top: 20px;
+        }
+
+        .process-section {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .process-header {
+            background: #f8f9fa;
+            padding: 15px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .process-header h3 {
+            color: #495057;
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .process-header.no-results {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        .process-header.no-results h3 {
+            color: #721c24;
+        }
+
+        .process-content {
+            padding: 15px;
+        }
+
+        .result-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .result-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .result-item h4 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .result-item p {
+            color: #6c757d;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .result-item .field-label {
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .no-results-message {
+            color: #721c24;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .json-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+
+        .json-display pre {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #495057;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .stat-card h4 {
+            color: #6c757d;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Consultor de Comunicações DJEN</h1>
+            <p>Consulta múltipla de processos na API de Comunicação do DJEN</p>
+        </div>
+
+        <div class="controls">
+            <div class="input-group">
+                <label for="processNumbers">Números de Processo (cole o texto contendo os números):</label>
+                <textarea id="processNumbers" placeholder="Cole aqui o texto contendo os números de processo..."></textarea>
+            </div>
+            
+            <div class="date-inputs">
+                <div class="input-group">
+                    <label for="startDate">Data Inicial:</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div class="input-group">
+                    <label for="endDate">Data Final:</label>
+                    <input type="date" id="endDate">
+                </div>
+            </div>
+            
+            <button class="button" id="fetchBtn" onclick="fetchMultipleProcesses()">
+                <span id="btnText">Consultar Processos</span>
+                <span id="spinner" class="loading-spinner hidden"></span>
+            </button>
+            <div id="status" class="status hidden"></div>
+        </div>
+
+        <div class="content">
+            <div id="stats" class="stats hidden">
+                <div class="stat-card">
+                    <h4>Total de Resultados</h4>
+                    <div class="value" id="totalResults">0</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Tempo de Resposta</h4>
+                    <div class="value" id="responseTime">0ms</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Tamanho dos Dados</h4>
+                    <div class="value" id="dataSize">0 KB</div>
+                </div>
+            </div>
+
+            <div id="results" class="results hidden"></div>
+        </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+        
+        // Initialize date fields with default values
+        window.addEventListener('load', function() {
+            const today = new Date();
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(today.getDate() - 7);
+            
+            document.getElementById('startDate').value = sevenDaysAgo.toISOString().split('T')[0];
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+        });
+
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            document.getElementById('status').classList.add('hidden');
+        }
+
+        function setLoading(loading) {
+            const btn = document.getElementById('fetchBtn');
+            const btnText = document.getElementById('btnText');
+            const spinner = document.getElementById('spinner');
+            
+            if (loading) {
+                btn.disabled = true;
+                btnText.textContent = 'Consultando...';
+                spinner.classList.remove('hidden');
+            } else {
+                btn.disabled = false;
+                btnText.textContent = 'Consultar Processos';
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function extractProcessNumbers(text) {
+            // Regex para extrair números de processo no formato brasileiro
+            // Padrão: NNNNNNN-NN.NNNN.N.NN.NNNN
+            const regex = /\b\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}\b/g;
+            const matches = text.match(regex);
+            return matches ? [...new Set(matches)] : []; // Remove duplicatas
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                // Opcional: mostrar feedback visual
+                console.log('Número copiado para a área de transferência');
+            }).catch(function(err) {
+                console.error('Erro ao copiar: ', err);
+            });
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                return new Date(dateString).toLocaleDateString('pt-BR');
+            } catch {
+                return dateString;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function displayProcessResults(processResults) {
+            const resultsEl = document.getElementById('results');
+            const statsEl = document.getElementById('stats');
+            
+            // Show stats
+            statsEl.classList.remove('hidden');
+            const totalProcesses = processResults.length;
+            const processesWithResults = processResults.filter(p => p.results && p.results.length > 0).length;
+            const totalResults = processResults.reduce((sum, p) => sum + (p.results ? p.results.length : 0), 0);
+            
+            document.getElementById('totalResults').textContent = totalResults;
+            
+            // Calculate total data size
+            const dataSize = new Blob([JSON.stringify(processResults)]).size;
+            document.getElementById('dataSize').textContent = formatFileSize(dataSize);
+
+            // Display results
+            resultsEl.classList.remove('hidden');
+            resultsEl.innerHTML = '';
+
+            if (totalProcesses === 0) {
+                resultsEl.innerHTML = '<div class="result-item"><p>Nenhum número de processo encontrado no texto.</p></div>';
+                return;
+            }
+
+            processResults.forEach((processData, index) => {
+                const processSection = document.createElement('div');
+                processSection.className = 'process-section';
+                
+                const processHeader = document.createElement('div');
+                processHeader.className = 'process-header';
+                
+                const processContent = document.createElement('div');
+                processContent.className = 'process-content';
+                
+                if (!processData.results || processData.results.length === 0) {
+                    // Processo sem resultados
+                    processHeader.classList.add('no-results');
+                    processHeader.innerHTML = `
+                        <h3>${processData.processNumber}</h3>
+                        <div class="no-results-message">
+                            <span>Nenhuma comunicação encontrada para este processo</span>
+                            <button class="copy-button" onclick="copyToClipboard('${processData.processNumber}')">
+                                Copiar Número
+                            </button>
+                        </div>
+                    `;
+                    processSection.appendChild(processHeader);
+                } else {
+                    // Processo com resultados
+                    processHeader.innerHTML = `
+                        <h3>${processData.processNumber}</h3>
+                        <span>${processData.results.length} comunicação(ões) encontrada(s)</span>
+                    `;
+                    processSection.appendChild(processHeader);
+                    
+                    processData.results.forEach((item, itemIndex) => {
+                        const resultDiv = document.createElement('div');
+                        resultDiv.className = 'result-item';
+                        
+                        let html = `<h4>Comunicação ${itemIndex + 1}</h4>`;
+                        
+                        // Extrair os campos solicitados
+                        if (item.numeroProcesso) {
+                            html += `<p><span class="field-label">Número do Processo:</span> ${item.numeroProcesso}</p>`;
+                        }
+                        if (item.numeroprocessocommascara) {
+                            html += `<p><span class="field-label">Número com Máscara:</span> ${item.numeroprocessocommascara}</p>`;
+                        }
+                        if (item.dataDisponibilizacao) {
+                            html += `<p><span class="field-label">Data de Disponibilização:</span> ${formatDate(item.dataDisponibilizacao)}</p>`;
+                        }
+                        if (item.nomeOrgao) {
+                            html += `<p><span class="field-label">Nome do Órgão:</span> ${item.nomeOrgao}</p>`;
+                        }
+                        if (item.tipoComunicacao) {
+                            html += `<p><span class="field-label">Tipo de Comunicação:</span> ${item.tipoComunicacao}</p>`;
+                        }
+                        if (item.texto) {
+                            html += `<p><span class="field-label">Texto:</span> ${item.texto}</p>`;
+                        }
+
+                        resultDiv.innerHTML = html;
+                        processContent.appendChild(resultDiv);
+                    });
+                    
+                    processSection.appendChild(processContent);
+                }
+                
+                resultsEl.appendChild(processSection);
+            });
+        }
+
+        async function fetchSingleProcess(processNumber, startDate, endDate) {
+            const url = `${API_BASE_URL}?numeroProcesso=${encodeURIComponent(processNumber)}&dataDisponibilizacaoInicio=${startDate}&dataDisponibilizacaoFim=${endDate}`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const items = data.items || data || [];
+                return Array.isArray(items) ? items : [];
+                
+            } catch (error) {
+                console.error(`Error fetching process ${processNumber}:`, error);
+                return [];
+            }
+        }
+
+        async function fetchMultipleProcesses() {
+            const processText = document.getElementById('processNumbers').value.trim();
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!processText) {
+                showStatus('Por favor, insira o texto contendo os números de processo.', 'error');
+                return;
+            }
+            
+            if (!startDate || !endDate) {
+                showStatus('Por favor, selecione as datas inicial e final.', 'error');
+                return;
+            }
+            
+            setLoading(true);
+            hideStatus();
+            
+            const startTime = performance.now();
+            
+            try {
+                showStatus('Extraindo números de processo...', 'loading');
+                
+                // Extrair números de processo usando regex
+                const processNumbers = extractProcessNumbers(processText);
+                
+                if (processNumbers.length === 0) {
+                    showStatus('Nenhum número de processo válido encontrado no texto.', 'error');
+                    return;
+                }
+                
+                showStatus(`Encontrados ${processNumbers.length} números de processo. Iniciando consultas...`, 'loading');
+                
+                const processResults = [];
+                
+                // Consultar cada processo
+                for (let i = 0; i < processNumbers.length; i++) {
+                    const processNumber = processNumbers[i];
+                    const progress = Math.round(((i + 1) / processNumbers.length) * 100);
+                    
+                    showStatus(`Consultando processo ${i + 1} de ${processNumbers.length} (${progress}%): ${processNumber}`, 'loading');
+                    
+                    const results = await fetchSingleProcess(processNumber, startDate, endDate);
+                    
+                    processResults.push({
+                        processNumber: processNumber,
+                        results: results
+                    });
+                    
+                    // Pequena pausa entre as consultas para não sobrecarregar a API
+                    if (i < processNumbers.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+                
+                const endTime = performance.now();
+                const totalTime = Math.round(endTime - startTime);
+                document.getElementById('responseTime').textContent = `${totalTime}ms`;
+                
+                const totalResults = processResults.reduce((sum, p) => sum + p.results.length, 0);
+                const processesWithResults = processResults.filter(p => p.results.length > 0).length;
+                
+                showStatus(`Consulta concluída! ${processesWithResults} de ${processNumbers.length} processos retornaram resultados (${totalResults} comunicações no total) em ${totalTime}ms`, 'success');
+                
+                displayProcessResults(processResults);
+                
+            } catch (error) {
+                console.error('Error in multiple process fetch:', error);
+                showStatus(`Erro durante a consulta: ${error.message}`, 'error');
+                
+                // Clear previous results
+                document.getElementById('results').classList.add('hidden');
+                document.getElementById('stats').classList.add('hidden');
+            } finally {
+                setLoading(false);
+            }
+        }
+    </script>
+</body>
+</html> 
