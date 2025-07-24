@@ -538,6 +538,9 @@
                 });
 
                 if (!response.ok) {
+                    if (response.status === 429) {
+                        throw new Error('Limite de taxa excedido. Aguarde um momento e tente novamente.');
+                    }
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
@@ -602,7 +605,7 @@
                     
                     // Pequena pausa entre as consultas para não sobrecarregar a API
                     if (i < processNumbers.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
                 
