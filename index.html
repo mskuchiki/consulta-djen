@@ -470,10 +470,17 @@
                 if (!processData.results || processData.results.length === 0) {
                     // Processo sem resultados
                     processHeader.classList.add('no-results');
+                    
+                    // Check if this is due to rate limiting
+                    const isRateLimitError = processData.error && processData.error.includes('Limite de taxa excedido');
+                    const message = isRateLimitError 
+                        ? 'Limite de consultas excedido. Aguarde um momento e tente novamente.'
+                        : 'Nenhuma comunicação encontrada para este processo';
+                    
                     processHeader.innerHTML = `
                         <h3>${processData.processNumber}</h3>
                         <div class="no-results-message">
-                            <span>Nenhuma comunicação encontrada para este processo</span>
+                            <span>${message}</span>
                             <button class="copy-button" onclick="copyToClipboard('${processData.processNumber}')">
                                 Copiar Número
                             </button>
@@ -539,7 +546,7 @@
 
                 if (!response.ok) {
                     if (response.status === 429) {
-                        throw new Error('Limite de taxa excedido. Aguarde um momento e tente novamente.');
+                        throw new Error('Limite de consultas excedido. Aguarde um momento e tente novamente.');
                     }
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -550,7 +557,8 @@
                 
             } catch (error) {
                 console.error(`Error fetching process ${processNumber}:`, error);
-                return [];
+                // Return an object with error information instead of empty array
+                return { error: error.message };
             }
         }
 
@@ -598,10 +606,21 @@
                     
                     const results = await fetchSingleProcess(processNumber, startDate, endDate);
                     
-                    processResults.push({
-                        processNumber: processNumber,
-                        results: results
-                    });
+                    // Handle the new error object structure
+                    if (results && typeof results === 'object' && results.error) {
+                        // This is an error case
+                        processResults.push({
+                            processNumber: processNumber,
+                            results: [],
+                            error: results.error
+                        });
+                    } else {
+                        // This is a successful case with results array
+                        processResults.push({
+                            processNumber: processNumber,
+                            results: results
+                        });
+                    }
                     
                     // Pequena pausa entre as consultas para não sobrecarregar a API
                     if (i < processNumbers.length - 1) {
