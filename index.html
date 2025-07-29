@@ -472,7 +472,7 @@
                     processHeader.classList.add('no-results');
                     
                     // Check if this is due to rate limiting
-                    const isRateLimitError = processData.error && processData.error.includes('Limite de taxa excedido');
+                    const isRateLimitError = processData.error && processData.error.includes('Limite de consultas excedido');
                     const message = isRateLimitError 
                         ? 'Limite de consultas excedido. Aguarde um momento e tente novamente.'
                         : 'Nenhuma comunicação encontrada para este processo';
