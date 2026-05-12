@@ -610,7 +610,7 @@
             processes: [],
             startDate: null,
             endDate: null,
-            rateLimit: { remaining: null, limit: null, pausedUntil: 0, inFlight: 0 },
+            rateLimit: { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, sent: 0 },
             completionTimes: [],
             runStartedAt: null,
             cancelled: false,
@@ -947,7 +947,10 @@
                 if (signal && signal.aborted) return;
                 await sleep(250);
             }
-            if (waited) state.rateLimit.remaining = null;
+            if (waited) {
+                state.rateLimit.remaining = null;
+                state.rateLimit.sent = 0;
+            }
         }
 
         async function acquireRateLimitToken(signal) {
@@ -957,11 +960,20 @@
                     await waitWhilePaused(signal);
                     continue;
                 }
+                // Client-side cap: stop CONCURRENCY slots before the limit so
+                // the in-flight requests at the boundary always have server budget.
+                const limit = state.rateLimit.limit || 20;
+                if (state.rateLimit.sent >= limit - CONCURRENCY) {
+                    triggerRateLimitPause();
+                    await waitWhilePaused(signal);
+                    continue;
+                }
                 const headerRemaining = state.rateLimit.remaining;
                 const effective = headerRemaining == null
                     ? Infinity
                     : headerRemaining - state.rateLimit.inFlight;
                 if (effective > RATE_LIMIT_SAFETY_BUFFER) {
+                    state.rateLimit.sent++;
                     state.rateLimit.inFlight++;
                     return true;
                 }
@@ -1106,7 +1118,7 @@
             }));
             state.startDate = startDate;
             state.endDate = endDate;
-            state.rateLimit = { remaining: null, limit: null, pausedUntil: 0, inFlight: 0 };
+            state.rateLimit = { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, sent: 0 };
             state.completionTimes = [];
             state.runStartedAt = Date.now();
             state.cancelled = false;
