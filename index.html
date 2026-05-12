@@ -850,7 +850,7 @@
                     return;
                 }
                 const sec = Math.ceil(remaining / 1000);
-                msg.textContent = `Limite da API atingido. Aguardando ${sec}s antes de retomar (regra oficial: 1 minuto + margem de segurança).`;
+                msg.textContent = `Limite da API atingido. Aguardando ${sec}s antes de retomar (1 minuto de espera conforme recomendação oficial DJEN).`;
             };
             el.classList.remove('hidden');
             tick();
