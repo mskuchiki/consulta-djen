@@ -546,9 +546,8 @@
                 <summary>Clique aqui para informações sobre os limites da API DJEN e o tempo de consulta</summary>
                 <div class="info-content">
                     <p>A API oficial do DJEN aplica um <strong>controle de consultas por IP</strong>. Esta ferramenta consulta <strong>um processo por vez</strong> e acompanha automaticamente quando a API está perto de atingir esse limite.</p>
-                    <p><strong>Estimativa de tempo:</strong> a ferramenta usa o limite restante informado pela API e adiciona uma pausa preventiva de <strong>125 segundos</strong> sempre que estiver perto do limite.</p>
                     <p>A página atualiza os resultados em tempo real conforme cada processo é consultado. Você não precisa esperar o fim para ver o que já chegou.</p>
-                    <p><strong>Quando a API estiver perto do limite</strong> ou informar limite excedido, a ferramenta aguarda 125 segundos antes de retomar para reduzir o risco de timeout.</p>
+                    <p><strong>Quando a API estiver perto do limite</strong> ou informar limite excedido, a ferramenta aguarda 125 segundos antes de retomar para reduzir a quantidade de timeouts.</p>
                     <p class="info-warning"><strong>Aviso:</strong> Tentar contornar esse limite usando múltiplos IPs ou múltiplas máquinas numa mesma unidade é considerado uso abusivo e pode resultar em bloqueio.</p>
                     <p><strong>Tentativas automáticas:</strong> cada processo é tentado até 3 vezes em caso de timeout ou erro temporário. Processos que falharem mesmo assim podem ser reenviados individualmente pelo botão "Tentar novamente" no card.</p>
                 </div>
