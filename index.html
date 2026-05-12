@@ -545,10 +545,10 @@
             <details class="info-box">
                 <summary>Clique aqui para informações sobre os limites da API DJEN e o tempo de consulta</summary>
                 <div class="info-content">
-                    <p>A API oficial do DJEN aplica um <strong>controle de taxa por IP</strong> (atualmente cerca de 20 requisições por minuto). Esta ferramenta respeita esse limite automaticamente, o que faz com que consultas em lote demorem alguns minutos.</p>
-                    <p><strong>Estimativa de tempo:</strong> aproximadamente <strong>1 minuto a cada 20 processos</strong>. Por exemplo, 200 processos levam cerca de 10 minutos.</p>
+                    <p>A API oficial do DJEN aplica um <strong>controle de consultas por IP</strong>. Esta ferramenta consulta <strong>um processo por vez</strong> e acompanha automaticamente quando a API está perto de atingir esse limite.</p>
+                    <p><strong>Estimativa de tempo:</strong> a ferramenta usa o limite restante informado pela API e adiciona uma pausa preventiva de <strong>125 segundos</strong> sempre que estiver perto do limite.</p>
                     <p>A página atualiza os resultados em tempo real conforme cada processo é consultado. Você não precisa esperar o fim para ver o que já chegou.</p>
-                    <p><strong>Em caso de erro 429</strong> (limite excedido), a ferramenta aguarda 1 minuto antes de retomar, conforme orientação oficial da API.</p>
+                    <p><strong>Quando a API estiver perto do limite</strong> ou informar limite excedido, a ferramenta aguarda 125 segundos antes de retomar para reduzir o risco de timeout.</p>
                     <p class="info-warning"><strong>Aviso:</strong> Tentar contornar esse limite usando múltiplos IPs ou múltiplas máquinas numa mesma unidade é considerado uso abusivo e pode resultar em bloqueio.</p>
                     <p><strong>Tentativas automáticas:</strong> cada processo é tentado até 3 vezes em caso de timeout ou erro temporário. Processos que falharem mesmo assim podem ser reenviados individualmente pelo botão "Tentar novamente" no card.</p>
                 </div>
@@ -588,7 +588,7 @@
 
             <div id="rateLimitNotice" class="rate-limit-notice hidden">
                 <span class="pulse"></span>
-                <span id="rateLimitMessage">Limite da API atingido. Aguardando 1 minuto antes de retomar...</span>
+                <span id="rateLimitMessage">Pausa preventiva: aguardando 125 segundos antes de retomar...</span>
             </div>
 
             <div id="results" class="results"></div>
@@ -601,9 +601,10 @@
         const CONCURRENCY = 1;
         const REQUEST_TIMEOUT_MS = 25000;
         const MAX_ATTEMPTS = 3;
-        const RATE_LIMIT_PROBE_INITIAL_MS = 5000;
-        const RATE_LIMIT_PROBE_MAX_MS = 90000;
-        const RATE_LIMIT_SAFETY_BUFFER = 0;
+        const RATE_LIMIT_PAUSE_MS = 125000;
+        const RATE_LIMIT_PAUSE_THRESHOLD = 1;
+        const FALLBACK_REQUESTS_PER_WINDOW = 19;
+        const ESTIMATED_REQUEST_MS = 2000;
         const ITEMS_PER_PAGE = 100;
         const MAX_PAGES = 100;
 
@@ -611,7 +612,7 @@
             processes: [],
             startDate: null,
             endDate: null,
-            rateLimit: { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, probeDelayMs: RATE_LIMIT_PROBE_INITIAL_MS },
+            rateLimit: { remaining: null, hasHeader: false, fallbackRemaining: FALLBACK_REQUESTS_PER_WINDOW, pausedUntil: 0, inFlight: 0, warnedMissingHeader: false },
             completionTimes: [],
             runStartedAt: null,
             cancelled: false,
@@ -801,8 +802,7 @@
             if (remaining === 0) return 0;
             const completed = total - remaining;
 
-            const ratePerMin = state.rateLimit.limit || 20;
-            const theoreticalMinMs = Math.ceil(remaining / ratePerMin) * 60000;
+            const theoreticalMinMs = calculateRateLimitAwareEstimate(remaining);
 
             if (completed < 3 || !state.runStartedAt) return theoreticalMinMs;
 
@@ -811,6 +811,30 @@
             const elapsedBasedMs = Math.round(remaining * msPerCase);
 
             return Math.max(elapsedBasedMs, theoreticalMinMs);
+        }
+
+        function calculateRateLimitAwareEstimate(requestsRemaining) {
+            if (requestsRemaining <= 0) return 0;
+
+            const pauseRemainingMs = Math.max(0, state.rateLimit.pausedUntil - Date.now());
+            const estimatedFetchMs = requestsRemaining * ESTIMATED_REQUEST_MS;
+
+            if (!state.rateLimit.hasHeader) {
+                const fallbackAvailableBeforePause = pauseRemainingMs > 0
+                    ? 0
+                    : Math.max(0, state.rateLimit.fallbackRemaining - state.rateLimit.inFlight);
+                const fallbackRequestsAfterAvailable = Math.max(0, requestsRemaining - fallbackAvailableBeforePause);
+                const fallbackPausesNeeded = Math.ceil(fallbackRequestsAfterAvailable / FALLBACK_REQUESTS_PER_WINDOW);
+                return estimatedFetchMs + pauseRemainingMs + (fallbackPausesNeeded * RATE_LIMIT_PAUSE_MS);
+            }
+
+            const availableBeforePause = pauseRemainingMs > 0
+                ? 0
+                : Math.max(0, state.rateLimit.remaining - state.rateLimit.inFlight - RATE_LIMIT_PAUSE_THRESHOLD);
+            const requestsAfterAvailable = Math.max(0, requestsRemaining - availableBeforePause);
+            const pausesNeeded = requestsAfterAvailable > 0 ? 1 : 0;
+
+            return estimatedFetchMs + pauseRemainingMs + (pausesNeeded * RATE_LIMIT_PAUSE_MS);
         }
 
         function updateProgress() {
@@ -851,7 +875,8 @@
                     return;
                 }
                 const sec = Math.ceil(remaining / 1000);
-                msg.textContent = `Limite da API atingido. Aguardando ${sec}s antes de retomar (1 minuto de espera conforme recomendação oficial DJEN).`;
+                msg.textContent = `Pausa preventiva: aguardando ${sec}s antes de retomar para evitar estouro do limite da API.`;
+                updateProgress();
             };
             el.classList.remove('hidden');
             tick();
@@ -887,15 +912,14 @@
                     signal: controller.signal,
                 });
 
-                const remainingHeader = response.headers.get('x-ratelimit-remaining');
-                const limitHeader = response.headers.get('x-ratelimit-limit');
-                if (limitHeader !== null) state.rateLimit.limit = parseInt(limitHeader, 10);
-                if (remainingHeader !== null) {
-                    const r = parseInt(remainingHeader, 10);
-                    state.rateLimit.remaining = r;
-                    if (r >= Math.floor((state.rateLimit.limit || 20) * 0.75)) {
-                        state.rateLimit.probeDelayMs = RATE_LIMIT_PROBE_INITIAL_MS;
-                    }
+                const parsedRemaining = readRateLimitRemaining(response);
+                if (parsedRemaining != null) {
+                    state.rateLimit.hasHeader = true;
+                    state.rateLimit.remaining = parsedRemaining;
+                    if (parsedRemaining <= RATE_LIMIT_PAUSE_THRESHOLD) triggerRateLimitPause();
+                } else {
+                    state.rateLimit.hasHeader = false;
+                    state.rateLimit.remaining = null;
                 }
 
                 if (response.status === 429) {
@@ -954,7 +978,42 @@
                 if (signal && signal.aborted) return;
                 await sleep(250);
             }
-            if (waited) state.rateLimit.remaining = null;
+            if (waited) {
+                state.rateLimit.remaining = null;
+                state.rateLimit.hasHeader = false;
+                state.rateLimit.fallbackRemaining = FALLBACK_REQUESTS_PER_WINDOW;
+            }
+        }
+
+        function readRateLimitRemaining(response) {
+            const headerNames = [
+                'x-ratelimit-remaining',
+                'x-rate-limit-remaining',
+                'ratelimit-remaining',
+                'rate-limit-remaining',
+            ];
+
+            for (const headerName of headerNames) {
+                const parsed = parseRateLimitHeader(response.headers.get(headerName));
+                if (parsed != null) return parsed;
+            }
+
+            if (!state.rateLimit.warnedMissingHeader) {
+                state.rateLimit.warnedMissingHeader = true;
+                console.warn(
+                    'Não foi possível ler o cabeçalho de limite restante da API no JavaScript do navegador. ' +
+                    'Se ele aparecer no Network/DevTools, a API provavelmente não o expôs via CORS.',
+                    { visibleHeaders: Array.from(response.headers.keys()) }
+                );
+            }
+
+            return null;
+        }
+
+        function parseRateLimitHeader(value) {
+            if (value === null) return null;
+            const parsed = Number.parseInt(value, 10);
+            return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
         }
 
         async function acquireRateLimitToken(signal) {
@@ -965,11 +1024,16 @@
                     continue;
                 }
                 const headerRemaining = state.rateLimit.remaining;
-                const effective = headerRemaining == null
-                    ? Infinity
-                    : headerRemaining - state.rateLimit.inFlight;
-                if (effective > RATE_LIMIT_SAFETY_BUFFER) {
+                const effective = state.rateLimit.hasHeader
+                    ? headerRemaining - state.rateLimit.inFlight
+                    : state.rateLimit.fallbackRemaining - state.rateLimit.inFlight;
+                if (effective > RATE_LIMIT_PAUSE_THRESHOLD) {
                     state.rateLimit.inFlight++;
+                    if (state.rateLimit.hasHeader) {
+                        state.rateLimit.remaining = Math.max(0, headerRemaining - 1);
+                    } else {
+                        state.rateLimit.fallbackRemaining = Math.max(0, state.rateLimit.fallbackRemaining - 1);
+                    }
                     return true;
                 }
                 triggerRateLimitPause();
@@ -982,13 +1046,20 @@
         }
 
         function triggerRateLimitPause() {
-            const delay = state.rateLimit.probeDelayMs;
-            const until = Date.now() + delay;
+            const until = Date.now() + RATE_LIMIT_PAUSE_MS;
             if (until > state.rateLimit.pausedUntil) {
                 state.rateLimit.pausedUntil = until;
             }
-            state.rateLimit.probeDelayMs = Math.min(delay * 2, RATE_LIMIT_PROBE_MAX_MS);
             ensureRateLimitNoticeRunning();
+        }
+
+        function clearRateLimitNotice() {
+            state.rateLimit.pausedUntil = 0;
+            document.getElementById('rateLimitNotice').classList.add('hidden');
+            if (noticeIntervalId) {
+                clearInterval(noticeIntervalId);
+                noticeIntervalId = null;
+            }
         }
 
         async function processOne(proc, signal) {
@@ -1067,6 +1138,7 @@
             hideStatus();
             await worker(currentAbortController.signal);
             setRunning(false);
+            clearRateLimitNotice();
             updateFinalStatus();
         }
 
@@ -1115,17 +1187,17 @@
             }));
             state.startDate = startDate;
             state.endDate = endDate;
-            state.rateLimit = { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, probeDelayMs: RATE_LIMIT_PROBE_INITIAL_MS };
+            state.rateLimit = { remaining: null, hasHeader: false, fallbackRemaining: FALLBACK_REQUESTS_PER_WINDOW, pausedUntil: 0, inFlight: 0, warnedMissingHeader: false };
             state.completionTimes = [];
             state.runStartedAt = Date.now();
             state.cancelled = false;
 
             document.getElementById('progressStrip').classList.remove('hidden');
-            document.getElementById('rateLimitNotice').classList.add('hidden');
+            clearRateLimitNotice();
             renderAllCards();
             updateProgress();
             hideStatus();
-            showStatus(`Encontrados ${processNumbers.length} processo(s). Estimativa inicial: ~${Math.ceil(processNumbers.length / 20)} minuto(s) considerando o limite da API.`, 'loading');
+            showStatus(`Encontrados ${processNumbers.length} processo(s). Estimativa inicial: ${formatDuration(calculateRateLimitAwareEstimate(processNumbers.length))}, consultando um por vez e fazendo pausas preventivas de 125s quando a API estiver perto do limite.`, 'loading');
 
             currentAbortController = new AbortController();
             setRunning(true);
@@ -1137,6 +1209,7 @@
                 console.error('Erro inesperado durante a consulta:', err);
             } finally {
                 setRunning(false);
+                clearRateLimitNotice();
                 if (state.cancelled) {
                     showStatus('Consulta cancelada pelo usuário. Resultados parciais permanecem disponíveis.', 'error');
                 } else {
