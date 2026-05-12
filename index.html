@@ -598,11 +598,12 @@
     <script>
         const API_BASE_URL = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 
-        const CONCURRENCY = 4;
+        const CONCURRENCY = 1;
         const REQUEST_TIMEOUT_MS = 25000;
         const MAX_ATTEMPTS = 3;
-        const RATE_LIMIT_COOLDOWN_MS = 65000;
-        const RATE_LIMIT_SAFETY_BUFFER = 1;
+        const RATE_LIMIT_PROBE_INITIAL_MS = 5000;
+        const RATE_LIMIT_PROBE_MAX_MS = 90000;
+        const RATE_LIMIT_SAFETY_BUFFER = 0;
         const ITEMS_PER_PAGE = 100;
         const MAX_PAGES = 100;
 
@@ -610,7 +611,7 @@
             processes: [],
             startDate: null,
             endDate: null,
-            rateLimit: { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, sent: 0 },
+            rateLimit: { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, probeDelayMs: RATE_LIMIT_PROBE_INITIAL_MS },
             completionTimes: [],
             runStartedAt: null,
             cancelled: false,
@@ -888,8 +889,14 @@
 
                 const remainingHeader = response.headers.get('x-ratelimit-remaining');
                 const limitHeader = response.headers.get('x-ratelimit-limit');
-                if (remainingHeader !== null) state.rateLimit.remaining = parseInt(remainingHeader, 10);
                 if (limitHeader !== null) state.rateLimit.limit = parseInt(limitHeader, 10);
+                if (remainingHeader !== null) {
+                    const r = parseInt(remainingHeader, 10);
+                    state.rateLimit.remaining = r;
+                    if (r >= Math.floor((state.rateLimit.limit || 20) * 0.75)) {
+                        state.rateLimit.probeDelayMs = RATE_LIMIT_PROBE_INITIAL_MS;
+                    }
+                }
 
                 if (response.status === 429) {
                     const err = new Error('Limite de consultas excedido (HTTP 429)');
@@ -947,10 +954,7 @@
                 if (signal && signal.aborted) return;
                 await sleep(250);
             }
-            if (waited) {
-                state.rateLimit.remaining = null;
-                state.rateLimit.sent = 0;
-            }
+            if (waited) state.rateLimit.remaining = null;
         }
 
         async function acquireRateLimitToken(signal) {
@@ -960,20 +964,11 @@
                     await waitWhilePaused(signal);
                     continue;
                 }
-                // Client-side cap: stop CONCURRENCY slots before the limit so
-                // the in-flight requests at the boundary always have server budget.
-                const limit = state.rateLimit.limit || 20;
-                if (state.rateLimit.sent >= limit - CONCURRENCY) {
-                    triggerRateLimitPause();
-                    await waitWhilePaused(signal);
-                    continue;
-                }
                 const headerRemaining = state.rateLimit.remaining;
                 const effective = headerRemaining == null
                     ? Infinity
                     : headerRemaining - state.rateLimit.inFlight;
                 if (effective > RATE_LIMIT_SAFETY_BUFFER) {
-                    state.rateLimit.sent++;
                     state.rateLimit.inFlight++;
                     return true;
                 }
@@ -987,10 +982,12 @@
         }
 
         function triggerRateLimitPause() {
-            const until = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+            const delay = state.rateLimit.probeDelayMs;
+            const until = Date.now() + delay;
             if (until > state.rateLimit.pausedUntil) {
                 state.rateLimit.pausedUntil = until;
             }
+            state.rateLimit.probeDelayMs = Math.min(delay * 2, RATE_LIMIT_PROBE_MAX_MS);
             ensureRateLimitNoticeRunning();
         }
 
@@ -1118,7 +1115,7 @@
             }));
             state.startDate = startDate;
             state.endDate = endDate;
-            state.rateLimit = { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, sent: 0 };
+            state.rateLimit = { remaining: null, limit: null, pausedUntil: 0, inFlight: 0, probeDelayMs: RATE_LIMIT_PROBE_INITIAL_MS };
             state.completionTimes = [];
             state.runStartedAt = Date.now();
             state.cancelled = false;
