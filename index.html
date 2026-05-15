@@ -325,6 +325,24 @@
             margin-top: 0;
         }
 
+        .bulk-actions {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .bulk-actions .button {
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+
+        .bulk-actions .button-secondary {
+            margin-left: 0;
+        }
+
         .process-section {
             background: white;
             border: 1px solid #e9ecef;
@@ -465,6 +483,10 @@
             color: #495057;
         }
 
+        .result-item .result-text {
+            white-space: pre-wrap;
+        }
+
         .empty-message {
             padding: 15px;
             color: #6c757d;
@@ -526,11 +548,11 @@
             <div class="date-inputs">
                 <div class="input-group">
                     <label for="startDate">Data Inicial:</label>
-                    <input type="date" id="startDate">
+                    <input type="date" id="startDate" lang="pt-BR">
                 </div>
                 <div class="input-group">
                     <label for="endDate">Data Final:</label>
-                    <input type="date" id="endDate">
+                    <input type="date" id="endDate" lang="pt-BR">
                 </div>
             </div>
 
@@ -590,6 +612,11 @@
                 <span id="rateLimitMessage">Pausa preventiva: aguardando 125 segundos antes de retomar...</span>
             </div>
 
+            <div id="bulkActions" class="bulk-actions hidden" aria-label="Ações das comunicações">
+                <button class="button button-secondary" id="expandAllBtn" type="button" onclick="expandAllCommunications()">Expandir todas</button>
+                <button class="button button-secondary" id="collapseAllBtn" type="button" onclick="collapseAllCommunications()">Recolher todas</button>
+            </div>
+
             <div id="results" class="results"></div>
         </div>
     </div>
@@ -616,14 +643,15 @@
             runStartedAt: null,
             cancelled: false,
             running: false,
+            communicationCardsExpanded: false,
         };
 
         window.addEventListener('load', function() {
             const today = new Date();
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(today.getDate() - 7);
-            document.getElementById('startDate').value = sevenDaysAgo.toISOString().split('T')[0];
-            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = dateToIso(sevenDaysAgo);
+            document.getElementById('endDate').value = dateToIso(today);
         });
 
         function showStatus(message, type) {
@@ -676,6 +704,93 @@
                 .replace(/'/g, '&#39;');
         }
 
+        function decodeHtmlEntities(str) {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = str;
+            return textarea.value;
+        }
+
+        function normalizeReadableText(str) {
+            return String(str)
+                .replace(/\r\n?/g, '\n')
+                .replace(/[ \t\f\v]+/g, ' ')
+                .replace(/ *\n */g, '\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        }
+
+        function looksLikeHtml(str) {
+            return /<\/?[a-z][\s\S]*>/i.test(str);
+        }
+
+        function looksLikeEscapedHtml(str) {
+            return /&lt;\/?[a-z][\s\S]*?&gt;/i.test(str);
+        }
+
+        function extractTextFromHtmlNode(node) {
+            const blockTags = new Set([
+                'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'DL', 'FIELDSET',
+                'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4',
+                'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE',
+                'SECTION', 'TABLE', 'TBODY', 'TFOOT', 'THEAD', 'TR', 'UL'
+            ]);
+            const cellTags = new Set(['TD', 'TH']);
+
+            if (node.nodeType === Node.TEXT_NODE) {
+                return node.nodeValue || '';
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) {
+                return '';
+            }
+
+            const tag = node.tagName || '';
+            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') {
+                return '';
+            }
+            if (tag === 'BR') {
+                return '\n';
+            }
+
+            let text = '';
+            if (blockTags.has(tag)) text += '\n';
+
+            node.childNodes.forEach(child => {
+                text += extractTextFromHtmlNode(child);
+                const childTag = child.tagName || '';
+                if (cellTags.has(childTag)) text += ' ';
+                if (childTag === 'TR') text += '\n';
+            });
+
+            if (blockTags.has(tag)) text += '\n';
+            return text;
+        }
+
+        function fallbackStripHtml(raw) {
+            const withBreaks = raw
+                .replace(/<\s*br\s*\/?>/gi, '\n')
+                .replace(/<\s*\/?\s*(p|div|tr|li|table|tbody|thead|tfoot|section|article|h[1-6])\b[^>]*>/gi, '\n')
+                .replace(/<[^>]*>/g, ' ');
+            return normalizeReadableText(decodeHtmlEntities(withBreaks));
+        }
+
+        function cleanCommunicationText(value) {
+            if (value == null) return '';
+
+            const raw = String(value);
+            const htmlSource = looksLikeEscapedHtml(raw) ? decodeHtmlEntities(raw) : raw;
+            if (!looksLikeHtml(htmlSource)) {
+                return normalizeReadableText(raw);
+            }
+
+            try {
+                const doc = new DOMParser().parseFromString(htmlSource, 'text/html');
+                const text = extractTextFromHtmlNode(doc.body || doc);
+                return normalizeReadableText(text);
+            } catch (err) {
+                return fallbackStripHtml(htmlSource);
+            }
+        }
+
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
@@ -699,6 +814,13 @@
             return `${prefix}${hr}h e ${remMin}min`;
         }
 
+        function dateToIso(date) {
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${year}-${month}-${day}`;
+        }
+
         function statusBadgeHtml(status) {
             const map = {
                 pending: { label: 'Aguardando', cls: 'pending' },
@@ -712,12 +834,45 @@
             return `<span class="status-badge ${m.cls}">${spinner}${m.label}</span>`;
         }
 
+        function updateBulkActions() {
+            const bulkActions = document.getElementById('bulkActions');
+            if (!bulkActions) return;
+
+            const doneCards = Array.from(document.querySelectorAll('.process-section.status-done'));
+            const hasDoneCards = doneCards.length > 0;
+            bulkActions.classList.toggle('hidden', !hasDoneCards);
+
+            if (!hasDoneCards) return;
+
+            const expandedCount = doneCards.filter(card => !card.classList.contains('collapsed')).length;
+            document.getElementById('expandAllBtn').disabled = expandedCount === doneCards.length;
+            document.getElementById('collapseAllBtn').disabled = expandedCount === 0;
+        }
+
+        function setAllCommunicationCardsExpanded(expanded) {
+            state.communicationCardsExpanded = expanded;
+            document.querySelectorAll('.process-section.status-done').forEach(card => {
+                card.classList.toggle('collapsed', !expanded);
+            });
+            updateBulkActions();
+        }
+
+        function expandAllCommunications() {
+            setAllCommunicationCardsExpanded(true);
+        }
+
+        function collapseAllCommunications() {
+            setAllCommunicationCardsExpanded(false);
+        }
+
         function renderCard(proc) {
             const existing = document.getElementById(`card-${proc.id}`);
-            const wasExpanded = existing && existing.classList.contains('status-done') && !existing.classList.contains('collapsed');
+            const wasDone = existing && existing.classList.contains('status-done');
+            const wasExpanded = wasDone && !existing.classList.contains('collapsed');
             const wrapper = document.createElement('div');
             wrapper.className = `process-section status-${proc.status}`;
-            if (proc.status === 'done' && !wasExpanded) {
+            const shouldExpand = wasExpanded || (!wasDone && state.communicationCardsExpanded);
+            if (proc.status === 'done' && !shouldExpand) {
                 wrapper.classList.add('collapsed');
             }
             wrapper.id = `card-${proc.id}`;
@@ -749,6 +904,7 @@
                 header.addEventListener('click', (e) => {
                     if (e.target.closest('button')) return;
                     wrapper.classList.toggle('collapsed');
+                    updateBulkActions();
                 });
             }
             wrapper.appendChild(header);
@@ -765,7 +921,8 @@
                     if (item.data_disponibilizacao) html += `<p><span class="field-label">Data de Disponibilização:</span> ${escapeHtml(item.data_disponibilizacao)}</p>`;
                     if (item.nomeOrgao) html += `<p><span class="field-label">Nome do Órgão:</span> ${escapeHtml(item.nomeOrgao)}</p>`;
                     if (item.tipoComunicacao) html += `<p><span class="field-label">Tipo de Comunicação:</span> ${escapeHtml(item.tipoComunicacao)}</p>`;
-                    if (item.texto) html += `<p><span class="field-label">Texto:</span> ${escapeHtml(item.texto)}</p>`;
+                    const cleanText = cleanCommunicationText(item.texto);
+                    if (cleanText) html += `<p class="result-text"><span class="field-label">Texto:</span> ${escapeHtml(cleanText)}</p>`;
                     div.innerHTML = html;
                     content.appendChild(div);
                 });
@@ -787,12 +944,14 @@
             } else {
                 document.getElementById('results').appendChild(wrapper);
             }
+            updateBulkActions();
         }
 
         function renderAllCards() {
             const container = document.getElementById('results');
             container.innerHTML = '';
             state.processes.forEach(renderCard);
+            updateBulkActions();
         }
 
         function calculateETA() {
@@ -1169,6 +1328,10 @@
                 showStatus('Por favor, selecione as datas inicial e final.', 'error');
                 return;
             }
+            if (startDate > endDate) {
+                showStatus('A data inicial nÃ£o pode ser maior que a data final.', 'error');
+                return;
+            }
 
             const processNumbers = extractProcessNumbers(processText);
             if (processNumbers.length === 0) {
@@ -1190,6 +1353,7 @@
             state.completionTimes = [];
             state.runStartedAt = Date.now();
             state.cancelled = false;
+            state.communicationCardsExpanded = false;
 
             document.getElementById('progressStrip').classList.remove('hidden');
             clearRateLimitNotice();
